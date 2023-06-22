@@ -1,0 +1,133 @@
+#include <Wire.h>
+#include <TinyGPS++.h>
+#include <WiFi.h>
+#include <WiFiServer.h>
+#include <stdlib.h>
+//definisanje konstantne varijable "ssid" koja sadrži naziv WiFi mreže "Nemanja".
+const char* ssid = "Nemanja"; 
+//definisanje konstantne varijable "password" koja sadrži lozinku za WiFi mrežu,     u ovom sluèaju "nemanja123".
+const char* password = "nemanja123"; 
+WiFiServer server(80); 
+#define RXD2 16
+#define TXD2 17
+// stvaranje objekta "neogps" tipa "HardwareSerial" koji se koristi za serijsku komunikaciju na hardverskom serijskom portu 1.
+HardwareSerial neogps(1); 
+TinyGPSPlus gps;
+void setup() {
+   //Postavljanje brzine serijske komunikacije za serijski monitor u softveru   Arduino IDE.
+  Serial.begin(115200);
+//Postavljanje serijske komunikacije NEO 6M GPS modula.
+  neogps.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  Serial.println();
+  Serial.print("????????? ?? ");
+  Serial.println(ssid);
+//Povezivanje na WiFi mrežu.
+  WiFi.begin(ssid, password); 
+// U sluèaju da ne možemo da se povežemo…
+  while (WiFi.status() != WL_CONNECTED) 
+
+  {
+    delay(500);
+    Serial.print("."); 
+  }
+  Serial.println("");
+  Serial.println("WiFi ??????????");
+  server.begin();
+  Serial.println("?????? ?????????");
+  Serial.println(WiFi.localIP());
+
+  delay(5000);
+}
+
+void loop()
+{
+  boolean newData = false;
+//Ispitivanje da li je dostupan novi podatak, ukoliko jeste on se obradjuje i postavlja vrijednost varijable "newData" na true.
+  for (unsigned long start = millis(); millis() - start < 1000;) 
+  {
+    while (neogps.available())
+    {
+      if (gps.encode(neogps.read()))
+      {
+        newData = true;
+      }
+    }
+  }
+  
+  if (newData == true)
+  {
+    newData = false;
+    Serial.println(gps.satellites.value());
+   
+  }
+  // Provjera da li je korisnik povezan na WiFi mrežu
+  WiFiClient client = server.available(); 
+
+  if (!client)
+  {
+    return;
+  }
+ 
+  
+String s = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n <!DOCTYPE html> <html><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
+s += "<meta charset=\"UTF-8\"> <head> <title>????????</title> <style>"; 
+s += "a:link {background-color: RED;text-decoration: none;}";
+s += "table, th, td {";
+s += "font-family: Arial, sans-serif;";
+s += "line-height: 3.26;";
+s += "border-collapse: collapse;";
+s += "width: 100%";
+s += "font-size:100%;";
+s += "text-align:left;}";
+s += "table, th, td </style> </head> <body style=background-color:LIGHTCYAN>";
+s += "<table style='width:30%'>"; 
+s+="> <tr style =background-color:LIGHTGREY > <th style='height:10px'>?????????? ??????:</th>";
+char buffer[15];
+//Pretvaranje vrijednosti geografske širine u string, kako bi omoguæili prikazivanje geografske širine sa 6 decimala.
+dtostrf(gps.location.lat(), 11, 6, buffer); 
+s += "<td ALIGN=LEFT >";
+s += buffer;
+
+s+="</td> </tr> <tr style =background-color:LIGHTYELLOW> <th style='height:110.4px'>?????????? ?????? :</th> <td style=font-family: Arial, sans-serif; ALIGN=CENTER >";
+dtostrf(gps.location.lng(), 11, 6, buffer);
+s+= buffer;
+s+="</td> </tr> <tr style =background-color:LIGHTGREY>  <th style='height:110.4px'>?????? :</th> <td ALIGN=CENTER >";
+s+= (gps.speed.kmph());
+s+= (" km/h");
+s+="</td></tr> <tr style =background-color:LIGHTYELLOW> <th style='height:110.4px'>????????? ??????:</th> <td ALIGN=CENTER >";
+s+= (gps.altitude.meters());
+s += (" m");
+s+="</td> </tr> <tr style =background-color:LIGHTGREY> <th style='height:110.4px'>????? :-</th> <td ALIGN=CENTER >";
+s += (gps.date.day());
+s += ("/");
+s += (gps.date.month());
+s += ("/");
+s += (gps.date.year());
+s += (".");
+s+="</td> </tr> <tr style =background-color:LIGHTYELLOW> <th style='height:110.4px'>??????? :-</th> <td ALIGN=LEFT >";
+s += (gps.time.hour());
+s += (":");
+s += (gps.time.minute());
+s += (":");
+s += (gps.time.second());
+s += "</td>  </tr> </table> ";
+s += "<div id='map' style='height:100vh;width:80%;float:right'></div>";
+//Inicijalizacija mape na web stranicu i postavljanje markera na trenutnu lokaciju.
+s += "<script>var map; var directionsRenderer; function initMap() {var location = {lat: " + String(gps.location.lat()) + ", lng: " + String(gps.location.lng()) + "};map = new google.maps.Map(document.getElementById('map'), {zoom: 15, center: location});var marker = new google.maps.Marker({position: location, map: map});directionsRenderer = new google.maps.DirectionsRenderer({map: map, polylineOptions: {strokeColor: 'blue'}});}</script>";
+// Dodavanje google map api kljuca kako bi mogli da koristimo mapu
+s+="<script src='https://maps.googleapis.com/maps/api/js?key=AIzaSyBEu-0Jw8QP3433UrkKXjemaxK7exdiYlI&callback=initMap'></script>"; 
+//Izraèunavanje rute klikom na dugme
+s += "<script>function calculateRoute(event) {event.preventDefault();var start = document.getElementById('start').value;var end = document.getElementById('end').value;var directionsService = new google.maps.DirectionsService();var request = {origin: start,destination: end,travelMode: 'DRIVING'};directionsService.route(request, function(result, status) {if (status == 'OK') {directionsRenderer.setDirections(result);}});}</script>"; 
+//Omogucava unos pocetne i krajnje lokacije koje su potrebne za iscrtavanje rute
+s += "<form onsubmit='calculateRoute(event)'>"; 
+s+= "<input type='text' id='start' name='start' style = 'background-color:LIGHTGREY;'>";
+s+= "<input type='text' id='end' name='end' style = 'background-color:LIGHTYELLOW;'>";
+s += "<button type='submit'>??????? ????</button>";
+
+s += "</form>";
+//Dodavanje JavaScript funkcije koja æe ažurirati stranicu svakih deset sekundi
+s+= "<script>setInterval(function() {location.reload()}, 10000);</script>";
+s += "</body> </html>";
+client.print(s);
+delay(100);
+}
